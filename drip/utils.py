@@ -1,5 +1,7 @@
+from importlib import import_module
 import sys
 
+from django.conf import settings
 from django.db import models
 from django.db.models import ForeignKey, OneToOneField, ManyToManyField
 from django.db.models.related import RelatedObject
@@ -15,6 +17,28 @@ if is_py2:
 elif is_py3:
     basestring = (str, bytes)
     unicode = str
+
+
+def configured_drip_classes():
+    conf_dict = getattr(settings, 'DRIP_CLASSES', {})
+    if 'default' not in conf_dict:
+        conf_dict['default'] = 'drip.drips.DripBase'
+    return conf_dict
+
+
+def configured_message_classes():
+    conf_dict = getattr(settings, 'DRIP_MESSAGE_CLASSES', {})
+    if 'default' not in conf_dict:
+        conf_dict['default'] = 'drip.drips.DripMessage'
+    return conf_dict
+
+
+def message_class_for(classes, name):
+    path = classes[name]
+    mod_name, klass_name = path.rsplit('.', 1)
+    mod = import_module(mod_name)
+    klass = getattr(mod, klass_name)
+    return klass
 
 
 def get_fields(Model, 

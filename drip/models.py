@@ -1,10 +1,12 @@
-from datetime import datetime, timedelta
+from datetime import datetime
+import re
+import ast
 
 from django.db import models
 from django.core.exceptions import ValidationError
 from django.conf import settings
 
-from drip.utils import get_user_model
+from drip.utils import get_user_model, configured_drip_classes, message_class_for
 
 # just using this to parse, but totally insane package naming...
 # https://bitbucket.org/schinckel/django-timedelta-field/
@@ -23,6 +25,10 @@ class Drip(models.Model):
 
     enabled = models.BooleanField(default=False)
 
+    description = models.TextField(null=True, blank=True)
+
+    template_name = models.CharField(max_length=150, null=True, blank=True)
+
     from_email = models.EmailField(null=True, blank=True,
         help_text='Set a custom from email.')
     from_email_name = models.CharField(max_length=150, null=True, blank=True,
@@ -31,17 +37,20 @@ class Drip(models.Model):
     body_html_template = models.TextField(null=True, blank=True,
         help_text='You will have settings and user in the context.')
     message_class = models.CharField(max_length=120, blank=True, default='default')
+    drip_class = models.CharField(max_length=120, blank=True, default='default')
+
 
     @property
     def drip(self):
-        from drip.drips import DripBase
+        dripclass = message_class_for(configured_drip_classes(), self.drip_class)
 
-        drip = DripBase(drip_model=self,
+        drip = dripclass(drip_model=self,
                         name=self.name,
                         from_email=self.from_email if self.from_email else None,
                         from_email_name=self.from_email_name if self.from_email_name else None,
                         subject_template=self.subject_template if self.subject_template else None,
-                        body_template=self.body_html_template if self.body_html_template else None)
+                        body_template=self.body_html_template if self.body_html_template else None,
+                        template_name=self.template_name if self.template_name else None)
         return drip
 
     def __unicode__(self):
@@ -88,7 +97,11 @@ LOOKUP_TYPES = (
     ('endswith', 'starts with'),
     ('istartswith', 'ends with (case insensitive)'),
     ('iendswith', 'ends with (case insensitive)'),
+    ('in', 'in ()'),
+    ('isnull', 'isnull (bool)'),
 )
+
+SEQUENCE_REGEX = re.compile(r'[\(\[](.+,)*(.+)[\)\]]')
 
 class QuerySetRule(models.Model):
     date = models.DateTimeField(auto_now_add=True)
@@ -105,9 +118,9 @@ class QuerySetRule(models.Model):
                    '`now-7 days` or `today+3 days` for fancy timedelta.'))
 
     def clean(self):
-        User = get_user_model()
+        model = self.drip.drip.queryset()
         try:
-            self.apply(User.objects.all())
+            self.apply(model.all())
         except Exception as e:
             raise ValidationError(
                 '%s raised trying to apply rule: %s' % (type(e).__name__, e))
@@ -158,6 +171,9 @@ class QuerySetRule(models.Model):
             field_value = True
         if self.field_value == 'False':
             field_value = False
+
+        if SEQUENCE_REGEX.match(self.field_value):
+            field_value = ast.literal_eval(self.field_value)
 
         kwargs = {field_name: field_value}
 

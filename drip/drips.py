@@ -9,7 +9,7 @@ from django.core.mail import EmailMultiAlternatives
 from django.utils.html import strip_tags
 
 from drip.models import SentDrip
-from drip.utils import get_user_model
+from drip.utils import get_user_model, message_class_for
 
 try:
     from django.utils.timezone import now as conditional_now
@@ -19,21 +19,6 @@ except ImportError:
 
 
 import logging
-
-
-def configured_message_classes():
-    conf_dict = getattr(settings, 'DRIP_MESSAGE_CLASSES', {})
-    if 'default' not in conf_dict:
-        conf_dict['default'] = 'drip.drips.DripMessage'
-    return conf_dict
-
-
-def message_class_for(name):
-    path = configured_message_classes()[name]
-    mod_name, klass_name = path.rsplit('.', 1)
-    mod = import_module(mod_name)
-    klass = getattr(mod, klass_name)
-    return klass
 
 
 class DripMessage(object):
@@ -94,6 +79,16 @@ class DripMessage(object):
             if len(self.plain) != len(self.body):
                 self._message.attach_alternative(self.body, 'text/html')
         return self._message
+
+    def get_message_content(self):
+        msg = self.message
+        if msg.alternatives:
+            for body, mime in msg.alternatives:
+                if mime == 'text/html':
+                    html = body
+                    mime = 'text/html'
+            return html, mime
+        return msg.body, 'text/plain'
 
 
 class DripBase(object):
@@ -225,7 +220,7 @@ class DripBase(object):
 
         if not self.from_email:
             self.from_email = getattr(settings, 'DRIP_FROM_EMAIL', settings.DEFAULT_FROM_EMAIL)
-        MessageClass = message_class_for(self.drip_model.message_class)
+        MessageClass = message_class_for(configured_message_classes(), self.drip_model.message_class)
 
         count = 0
         for user in self.get_queryset():
@@ -262,3 +257,7 @@ class DripBase(object):
         """
         User = get_user_model()
         return User.objects
+
+    def query_model(self):
+        from django.contrib.auth.models import User
+        return User
