@@ -46,6 +46,10 @@ class DripMessage(object):
             self._context = Context({'user': self.user})
         return self._context
 
+    @context.setter
+    def context(self, ctx):
+        self._context = ctx
+
     @property
     def subject(self):
         if not self._subject:
